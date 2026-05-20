@@ -1,0 +1,27 @@
+---
+Name: ai-translate
+After:
+  - '#versionedfiles'
+---
+SilverStripe\CMS\Model\SiteTree:
+  extensions:
+    - SilverstripeLtd\AiTranslate\Extensions\AiTranslateExtension
+
+DNADesign\Elemental\Models\BaseElement:
+  extensions:
+    aiTranslateFluentVersionedExtension: SilverstripeLtd\AiTranslate\Extensions\ElementalFluentVersionedExtension
+
+SilverstripeLtd\AiTranslate\Services\AiTranslateRateLimiter:
+  max_requests: 10
+  window_seconds: 300
+
+SilverStripe\Control\Director:
+  rules:
+    'admin/ai-translate': SilverstripeLtd\AiTranslate\Controllers\AiTranslateController
+
+SilverStripe\Admin\LeftAndMain:
+  extra_requirements_javascript:
+    'silverstripeltd/ai-translate:client/dist/js/bundle.js':
+      defer: true
+  extra_requirements_css:
+    - 'silverstripeltd/ai-translate:client/dist/styles/bundle.css'

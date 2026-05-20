@@ -1,0 +1,5 @@
+z-*
+node_modules
+.env
+
+# client/dist is committed intentionally (build before commit)
