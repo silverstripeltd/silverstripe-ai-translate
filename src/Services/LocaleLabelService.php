@@ -14,8 +14,8 @@ class LocaleLabelService
      */
     public function getLanguageLabel(Locale $locale): string
     {
-        $title = trim((string) $locale->Title);
-        $code = trim((string) $locale->Locale);
+        $title = trim((string) $locale->getField('Title'));
+        $code = trim((string) $locale->getField('Locale'));
         if ($title === '') {
             return $code;
         }
@@ -39,9 +39,9 @@ class LocaleLabelService
      */
     public function getModalLanguageLabel(Locale $locale): string
     {
-        $label = trim((string) $locale->Title);
+        $label = trim((string) $locale->getField('Title'));
         if ($label === '') {
-            $label = trim((string) $locale->Locale);
+            $label = trim((string) $locale->getField('Locale'));
         }
 
         $label = preg_replace('/\s*\([^)]*\)\s*$/', '', $label) ?: $label;
