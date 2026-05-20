@@ -2,11 +2,13 @@
 
 AI-assisted translation review and selective-apply workflow for Silverstripe CMS with Fluent.
 
+![AI translate modal](docs/ai-translate-modal.png)
+
 Extracts stable per-field translation targets from the source locale, asks the configured AI provider for structured JSON suggestions, and lets editors selectively apply approved suggestions back to target-locale Draft content. Results are cached only for the current CMS session and are not persisted to a module-owned table.
 
 ## Installation
 
-This module is hosted on a private GitHub repository and is not listed on Packagist. To install it, add the following to your project's `composer.json`:
+This module is currently not listed on Packagist. To install it, add the following to your project's `composer.json`:
 
 ```json
 {
@@ -17,7 +19,7 @@ This module is hosted on a private GitHub repository and is not listed on Packag
         }
     ],
     "require": {
-        "silverstripeltd/ai-translate": "dev-main"
+        "silverstripeltd/ai-translate": "*"
     }
 }
 ```

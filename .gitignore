@@ -1,4 +1,7 @@
 z-*
+vendor
+public
+composer.lock
 node_modules
 .env
 
