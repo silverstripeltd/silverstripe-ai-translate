@@ -4,7 +4,7 @@ namespace SilverstripeLtd\AiTranslate\Controllers;
 
 use DOMElement;
 use Psr\Log\LoggerInterface;
-use SilverstripeLtd\AiTranslate\Exceptions\AIProviderException;
+use SilverstripeLtd\AiCore\Provider\ProviderException;
 use SilverstripeLtd\AiTranslate\Exceptions\TranslationApplyException;
 use SilverstripeLtd\AiTranslate\Extensions\AiTranslateExtension;
 use SilverstripeLtd\AiTranslate\Forms\AiTranslateForm;
@@ -121,7 +121,7 @@ class AiTranslateController extends FormSchemaController
             $suggestions = $this->getGenerationService()->generateForRecord($record, $targetLocale);
         } catch (HTTPResponse_Exception $exception) {
             return $exception->getResponse();
-        } catch (AIProviderException $exception) {
+        } catch (ProviderException $exception) {
             $this->logProviderException($exception, $record);
             return $this->jsonResponse([
                 'error' => $this->getProviderErrorMessage($exception),
@@ -550,7 +550,7 @@ class AiTranslateController extends FormSchemaController
     /**
      * Chooses the provider error message that is safe to expose.
      */
-    private function getProviderErrorMessage(AIProviderException $exception): string
+    private function getProviderErrorMessage(ProviderException $exception): string
     {
         if ($this->shouldExposeProviderErrors()) {
             return $exception->getMessage();
@@ -570,7 +570,7 @@ class AiTranslateController extends FormSchemaController
     /**
      * Logs the original provider exception with page context.
      */
-    private function logProviderException(AIProviderException $exception, DataObject $record): void
+    private function logProviderException(ProviderException $exception, DataObject $record): void
     {
         $this->getLogger()->error('AI Translate provider request failed', [
             'exception' => $exception,

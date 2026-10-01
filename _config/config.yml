@@ -25,3 +25,24 @@ SilverStripe\Admin\LeftAndMain:
       defer: true
   extra_requirements_css:
     - 'silverstripeltd/ai-translate:client/dist/styles/bundle.css'
+
+---
+Name: ai-translate-provider
+---
+# Provider defaults for AI Translate. AI_TRANSLATE_* environment variables win, then the shared
+# AI_* variables, then these values. The thinking level is only sent to Gemini by default.
+SilverstripeLtd\AiCore\Settings\EnvProviderSettings:
+  modules:
+    TRANSLATE:
+      provider: gemini
+      max_tokens: 2000
+      request_timeout: 15
+      temperature: 1.0
+      providers:
+        anthropic:
+          model: claude-haiku-4-5
+        openai:
+          model: gpt-5-mini
+        gemini:
+          model: gemini-3.1-flash-lite
+          thinking_level: low

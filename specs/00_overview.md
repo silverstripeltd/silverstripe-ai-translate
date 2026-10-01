@@ -81,4 +81,4 @@ This module requires `tractorcow/silverstripe-fluent` as a composer dependency. 
 - **Dual-locale extraction** - prompt input includes both the source locale content and the current target-locale Draft content. This lets the AI detect already-translated copy, avoid rephrasing it, and only translate text that still needs work.
 - **Non-persisted on-demand results** - translation results are cached on the Entwine instance for the editing session, not persisted to DB. Same pattern as the writing style and tone rules workflow. Applying suggestions writes directly to Draft records, and the cache is lost on page navigation or CMS reload.
 - **No Fluent interaction on storage** - there is no persisted DataObject for translation results. Fluent only interacts with the page and element records being translated.
-- **Reuses ai-metadata providers** - same AbstractAIProvider, same env var configuration, same error handling.
+- **Uses the shared ai-core provider layer** - same env var configuration (with shared `AI_*` fallbacks), same error handling as the other AI modules.

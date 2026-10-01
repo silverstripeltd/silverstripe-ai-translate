@@ -46,8 +46,8 @@ Deferred to the parent DataObject - the editor must have `canEdit()` on the page
 ## Error handling
 
 - **Empty content:** Error message displayed in the modal. No API call made.
-- **Provider failure:** `AIProviderException` caught by the controller, error toast shown in the modal. Any previously cached result remains displayed.
-- **Malformed response:** `AIProviderException` thrown if the JSON is invalid or suggestions do not match the expected target list. Error toast shown.
+- **Provider failure:** `ProviderException` caught by the controller, error toast shown in the modal. Any previously cached result remains displayed.
+- **Malformed response:** `ProviderException` thrown if the JSON is invalid or suggestions do not match the expected target list. Error toast shown.
 - **Already translated:** The modal shows "This page content already matches the target locale.", hides apply, and disables regeneration so the current target-locale Draft content cannot be overwritten by a no-op result.
 
 ## Concurrency
