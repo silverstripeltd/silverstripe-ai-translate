@@ -135,6 +135,62 @@ class TranslationGenerationServiceTest extends SapphireTest
     }
 
     /**
+     * Supplies provider replies that wrap the JSON object in ways models commonly do.
+     *
+     * @return array<string, array{body: string}>
+     */
+    public static function provideGenerateForRecordAcceptsWrappedJson(): array
+    {
+        $json = json_encode([
+            'translationRequired' => true,
+            'suggestions' => [
+                [
+                    'targetKey' => 'page:title',
+                    'targetType' => 'page_title',
+                    'suggestedContent' => 'Wharangi hou',
+                ],
+                [
+                    'targetKey' => 'page:content',
+                    'targetType' => 'page_content',
+                    'suggestedContent' => '<p>Ihirangi hou</p>',
+                ],
+            ],
+        ], JSON_UNESCAPED_SLASHES);
+        return [
+            'plain-json' => [
+                'body' => $json,
+            ],
+            'fenced-json' => [
+                'body' => "```json\n" . $json . "\n```",
+            ],
+            'leading-sentence' => [
+                'body' => "Here are the translations you asked for:\n\n" . $json,
+            ],
+        ];
+    }
+
+    /**
+     * Confirms fenced or prose-wrapped JSON replies still produce suggestions.
+     */
+    #[DataProvider('provideGenerateForRecordAcceptsWrappedJson')]
+    public function testGenerateForRecordAcceptsWrappedJson(string $body): void
+    {
+        $this->registerProvider(new ScriptedProvider([ScriptedProvider::text($body)]));
+        $page = $this->createLocalisedPage(
+            'Default title',
+            '<p>Default content</p>',
+            'Current target title',
+            '<p>Current target content</p>'
+        );
+        $service = new TranslationGenerationService();
+        $result = $service->generateForRecord($page, $this->targetLocale);
+        $this->assertFalse($result->alreadyMatchesLocale);
+        $this->assertCount(2, $result->suggestions);
+        $this->assertSame('Wharangi hou', $result->suggestions[0]->suggestedContent);
+        $this->assertSame('<p>Ihirangi hou</p>', $result->suggestions[1]->suggestedContent);
+    }
+
+    /**
      * Supplies malformed provider responses that should be rejected.
      *
      * @return array<string, array{body: string, message: string}>
@@ -144,6 +200,10 @@ class TranslationGenerationServiceTest extends SapphireTest
         return [
             'invalid-json' => [
                 'body' => '{broken',
+                'message' => 'not valid JSON',
+            ],
+            'plain-text' => [
+                'body' => 'Sorry, I cannot translate this page.',
                 'message' => 'not valid JSON',
             ],
             'missing-suggestions-array' => [
