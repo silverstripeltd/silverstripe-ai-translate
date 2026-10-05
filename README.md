@@ -62,24 +62,28 @@ All configuration is via environment variables (e.g. in your webserver env or `.
 
 ### Provider
 
-Set the AI provider and API key. Gemini, OpenAI, and Anthropic are supported out of the box. Custom providers can be added by extending `AbstractAIProvider`.
+Set the AI provider and API key. Gemini, OpenAI, and Anthropic are supported out of the box through the shared `silverstripeltd/silverstripe-ai-core` package, which also documents how to add other providers.
 
 ```bash
 AI_TRANSLATE_PROVIDER=gemini              # gemini (default), openai, or anthropic
 AI_TRANSLATE_API_KEY=your-api-key         # API key for the chosen provider
 ```
 
+Every `AI_TRANSLATE_*` variable falls back to the shared `AI_*` variable of the same name (`AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, ...), so one key in `.env` can serve every AI module. The module variable always wins. The shared `AI_API_KEY` and `AI_MODEL` are ignored while `AI_TRANSLATE_PROVIDER` names a different provider than `AI_PROVIDER`.
+
 ### Model
 
 Control which model is used and how it generates responses. All optional - sensible defaults are used if omitted.
 
 ```bash
-AI_TRANSLATE_MODEL=gemini-2.5-flash       # Model identifier (provider-specific)
-AI_TRANSLATE_THINKING_LEVEL=low           # Thinking effort: none, low, medium, or high
+AI_TRANSLATE_MODEL=gemini-3.1-flash-lite  # Model identifier (provider-specific)
+AI_TRANSLATE_THINKING_LEVEL=low           # Thinking effort, sent to whichever provider is active
 AI_TRANSLATE_TEMPERATURE=1.0              # Sampling temperature
 AI_TRANSLATE_MAX_TOKENS=2000              # Max tokens in AI response
 AI_TRANSLATE_REQUEST_TIMEOUT=15           # Timeout per AI request in seconds
 ```
+
+Default models are `gemini-3.1-flash-lite` (Gemini), `gpt-5-mini` (OpenAI) and `claude-haiku-4-5` (Anthropic). The thinking level defaults to `low` for Gemini only; when set, `AI_TRANSLATE_THINKING_LEVEL` applies to every provider (Anthropic effort, OpenAI `reasoning_effort`, Gemini `thinkingLevel`), so only set it to a value the chosen model accepts. The defaults live in `_config/config.yml` under `SilverstripeLtd\AiCore\Settings\EnvProviderSettings.modules.TRANSLATE` and can be overridden in project YAML.
 
 Translation responses include both source and translated text, so they are roughly double the size of the input. Long pages may need `AI_TRANSLATE_MAX_TOKENS` increased.
 

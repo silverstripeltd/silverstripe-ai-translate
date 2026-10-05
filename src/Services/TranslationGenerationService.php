@@ -2,9 +2,10 @@
 
 namespace SilverstripeLtd\AiTranslate\Services;
 
-use JsonException;
-use SilverstripeLtd\AiTranslate\Exceptions\AIProviderException;
-use SilverstripeLtd\AiTranslate\Providers\ProviderFactory;
+use SilverstripeLtd\AiCore\Completion\JsonCompletion;
+use SilverstripeLtd\AiCore\Completion\SimpleCompletion;
+use SilverstripeLtd\AiCore\Provider\ProviderException;
+use SilverstripeLtd\AiCore\Settings\EnvProviderSettings;
 use SilverstripeLtd\AiTranslate\ValueObjects\TranslationExtractedContent;
 use SilverstripeLtd\AiTranslate\ValueObjects\TranslationGenerationResult;
 use SilverstripeLtd\AiTranslate\ValueObjects\TranslationRewriteTarget;
@@ -18,8 +19,13 @@ use TractorCow\Fluent\Model\Locale;
  */
 class TranslationGenerationService
 {
+    /**
+     * Module prefix of the AI_TRANSLATE_* provider environment variables.
+     */
+    public const SETTINGS_PREFIX = 'TRANSLATE';
+
     private ContentExtractService $contentExtractService;
-    private ProviderFactory $providerFactory;
+    private SimpleCompletion $completion;
     private PromptService $promptService;
 
     /**
@@ -27,11 +33,12 @@ class TranslationGenerationService
      */
     public function __construct(
         ?ContentExtractService $contentExtractService = null,
-        ?ProviderFactory $providerFactory = null,
+        ?SimpleCompletion $completion = null,
         ?PromptService $promptService = null
     ) {
         $this->contentExtractService = $contentExtractService ?: Injector::inst()->get(ContentExtractService::class);
-        $this->providerFactory = $providerFactory ?: Injector::inst()->get(ProviderFactory::class);
+        $this->completion = $completion
+            ?: SimpleCompletion::create(EnvProviderSettings::forModule(self::SETTINGS_PREFIX));
         $this->promptService = $promptService ?: Injector::inst()->get(PromptService::class);
     }
 
@@ -53,7 +60,7 @@ class TranslationGenerationService
             $sourceLocale,
             $targetLocale
         );
-        $providerResponse = $this->providerFactory->getProvider()->generate($systemPrompt, $userPrompt);
+        $providerResponse = $this->completion->complete($systemPrompt, $userPrompt);
         return $this->resolveGeneratedResult($providerResponse, $extractedContent);
     }
 
@@ -64,7 +71,7 @@ class TranslationGenerationService
     {
         $sourceLocale = Locale::getDefault();
         if (!$sourceLocale || !$sourceLocale->exists()) {
-            throw new AIProviderException('Default Fluent locale is not configured');
+            throw new ProviderException('Default Fluent locale is not configured');
         }
         return $sourceLocale;
     }
@@ -93,13 +100,13 @@ class TranslationGenerationService
         foreach ($parsedSuggestions as $parsedSuggestion) {
             $sourceTarget = $sourceTargetsByKey[$parsedSuggestion->targetKey] ?? null;
             if (!$sourceTarget) {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response referenced unexpected target %s',
                     $parsedSuggestion->targetKey
                 ));
             }
             if ($parsedSuggestion->targetType !== $sourceTarget->targetType) {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response returned the wrong targetType for %s',
                     $parsedSuggestion->targetKey
                 ));
@@ -113,7 +120,7 @@ class TranslationGenerationService
         $orderedSuggestions = [];
         foreach ($extractedContent->sourceRewriteTargets as $rewriteTarget) {
             if (!isset($resolvedSuggestions[$rewriteTarget->targetKey])) {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response missing suggestion for target %s',
                     $rewriteTarget->targetKey
                 ));
@@ -124,31 +131,30 @@ class TranslationGenerationService
     }
 
     /**
-     * Parses the raw JSON response from the AI provider.
+     * Parses the JSON response from the AI provider, tolerating Markdown fences or surrounding prose.
      *
      * @return array{translationRequired: bool, suggestions: array<int, TranslationSuggestion>}
      */
     private function parseProviderResponse(string $providerResponse): array
     {
-        try {
-            $decodedResponse = json_decode($providerResponse, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            throw new AIProviderException('AI provider response was not valid JSON', false, false, 0, $exception);
+        $decodedResponse = JsonCompletion::decode($providerResponse);
+        if ($decodedResponse === null) {
+            throw new ProviderException('AI provider response was not valid JSON');
         }
         if (!is_array($decodedResponse)) {
-            throw new AIProviderException('AI provider response was not a JSON object');
+            throw new ProviderException('AI provider response was not a JSON object');
         }
         $translationRequired = $decodedResponse['translationRequired'] ?? null;
         if (!is_bool($translationRequired)) {
-            throw new AIProviderException('AI provider response missing translationRequired flag');
+            throw new ProviderException('AI provider response missing translationRequired flag');
         }
         $suggestions = $decodedResponse['suggestions'] ?? null;
         if (!is_array($suggestions)) {
-            throw new AIProviderException('AI provider response missing suggestions array');
+            throw new ProviderException('AI provider response missing suggestions array');
         }
         if ($translationRequired === false) {
             if ($suggestions !== []) {
-                throw new AIProviderException(
+                throw new ProviderException(
                     'AI provider response must not include suggestions when translationRequired is false'
                 );
             }
@@ -161,24 +167,24 @@ class TranslationGenerationService
         $seenTargetKeys = [];
         foreach ($suggestions as $index => $suggestion) {
             if (!is_array($suggestion)) {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response suggestion %d was not an object',
                     $index
                 ));
             }
             $targetKey = trim((string) ($suggestion['targetKey'] ?? ''));
             if ($targetKey === '') {
-                throw new AIProviderException('AI provider response missing suggestion targetKey');
+                throw new ProviderException('AI provider response missing suggestion targetKey');
             }
             $targetType = trim((string) ($suggestion['targetType'] ?? ''));
             if ($targetType === '') {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response missing suggestion targetType for %s',
                     $targetKey
                 ));
             }
             if (!TranslationRewriteTarget::isValidTargetType($targetType)) {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response returned invalid targetType %s for %s',
                     $targetType,
                     $targetKey
@@ -186,13 +192,13 @@ class TranslationGenerationService
             }
             $suggestedContent = $suggestion['suggestedContent'] ?? null;
             if (!is_string($suggestedContent) || trim($suggestedContent) === '') {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response missing suggestedContent for %s',
                     $targetKey
                 ));
             }
             if (isset($seenTargetKeys[$targetKey])) {
-                throw new AIProviderException(sprintf(
+                throw new ProviderException(sprintf(
                     'AI provider response contains duplicate suggestions for target %s',
                     $targetKey
                 ));

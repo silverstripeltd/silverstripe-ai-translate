@@ -1,52 +1,44 @@
 # AI Providers
 
-## Copied from ai-metadata
+## Shared ai-core package
 
-The AI provider classes are copied from `SilverstripeLtd/silverstripe-ai-metadata` into this module. No dependency between the two modules. The copied classes are:
+The provider layer comes from `silverstripeltd/silverstripe-ai-core`, shared with the other AI modules and Content Engineer. This module no longer ships its own provider classes. It uses:
 
-- `AbstractAIProvider` — base class with shared HTTP/error handling
-- `GeminiProvider` — Gemini `generateContent` endpoint
-- `OpenAIProvider` — OpenAI Chat Completions API
-- `AnthropicProvider` — Anthropic Messages API
-- `ProviderFactory` — instantiates the configured provider
-- `AIProviderException` — error type with transient/blocking flags
+- `SilverstripeLtd\AiCore\Settings\EnvProviderSettings::forModule('TRANSLATE')` - reads the `AI_TRANSLATE_*` variables, then the shared `AI_*` variables, then the module YAML defaults
+- `SilverstripeLtd\AiCore\Completion\SimpleCompletion` - one system prompt and one user message in, the model's text out
+- `SilverstripeLtd\AiCore\Provider\ProviderException` - error type with transient/blocking flags
 
-These are standalone classes with no dependencies beyond Guzzle (bundled with Silverstripe framework).
+Gemini, OpenAI and Anthropic are supported by ai-core. Other providers are added through `ProviderFactory.providers` in ai-core.
 
-If a shared provider package is extracted in the future, both modules can switch to it. Until then, duplication is fine.
+## Provider call
 
-## Provider interface
-
-The copied providers are stripped down to a single generic method:
+`TranslationGenerationService` builds its own prompts (see `specs/04_prompts.md`) and calls:
 
 ```php
-public function generate(string $systemPrompt, string $userPrompt): string
+SimpleCompletion::create(EnvProviderSettings::forModule('TRANSLATE'))->complete($systemPrompt, $userPrompt);
 ```
 
-Returns the raw string response from the AI provider. The translation module constructs its own prompts (see `specs/04_prompts.md`) and parses the response as JSON in the service layer.
-
-The `generateMetadata()` method and `AiMetadataResult` value object from ai-metadata are not copied — they are specific to the metadata use case. Only the HTTP request infrastructure (`performRequest`, `extractResponseContent`, `isTransientStatus`, `getDefaultModel`) and error handling are retained.
+The raw text is parsed as JSON in the service layer.
 
 ## Configuration
 
-Same environment variables as ai-metadata:
+| Environment variable | Shared fallback | Description | Default |
+|---|---|---|---|
+| `AI_TRANSLATE_PROVIDER` | `AI_PROVIDER` | Active provider (`gemini`, `openai`, `anthropic`) | `gemini` |
+| `AI_TRANSLATE_API_KEY` | `AI_API_KEY` | API key for the active provider | (required) |
+| `AI_TRANSLATE_MODEL` | `AI_MODEL` | Model to use | `gemini-3.1-flash-lite`, `gpt-5-mini` or `claude-haiku-4-5` |
+| `AI_TRANSLATE_THINKING_LEVEL` | `AI_THINKING_LEVEL` | Thinking level, sent to whichever provider is active | `low` for Gemini, unset otherwise |
+| `AI_TRANSLATE_TEMPERATURE` | `AI_TEMPERATURE` | Temperature for generation | `1.0` |
+| `AI_TRANSLATE_MAX_TOKENS` | `AI_MAX_TOKENS` | Max tokens in response | `2000` |
+| `AI_TRANSLATE_REQUEST_TIMEOUT` | `AI_REQUEST_TIMEOUT` | Request timeout in seconds | `15` |
 
-| Environment variable | Description | Default |
-|---|---|---|
-| `AI_TRANSLATE_PROVIDER` | Active provider (`gemini`, `openai`, `anthropic`) | `gemini` |
-| `AI_TRANSLATE_API_KEY` | API key for the active provider | (required) |
-| `AI_TRANSLATE_MODEL` | Model to use | Provider-specific default |
-| `AI_TRANSLATE_THINKING_LEVEL` | Thinking level for Gemini | `low` |
-| `AI_TRANSLATE_TEMPERATURE` | Temperature for generation | `1.0` |
-| `AI_TRANSLATE_MAX_TOKENS` | Max tokens in response | `2000` |
-| `AI_TRANSLATE_REQUEST_TIMEOUT` | Request timeout in seconds | `15` |
+The defaults live in `_config/config.yml` under `SilverstripeLtd\AiCore\Settings\EnvProviderSettings.modules.TRANSLATE` and can be overridden in project YAML. The shared `AI_API_KEY` and `AI_MODEL` are ignored while `AI_TRANSLATE_PROVIDER` names a different provider than `AI_PROVIDER`.
 
-**Note on max_tokens:** Translation responses contain one suggestion per rewrite target as structured JSON. Long pages with many fields may need `AI_TRANSLATE_MAX_TOKENS` increased. This is the existing env var - no new configuration needed.
+**Note on max_tokens:** Translation responses contain one suggestion per rewrite target as structured JSON. Long pages with many fields may need `AI_TRANSLATE_MAX_TOKENS` increased.
 
 ## Error handling
 
-Same pattern as ai-metadata:
-
-- **Transient failures** (network timeout, rate limit, 5xx): `AIProviderException`
-- **Permanent failures** (invalid API key, 4xx): `AIProviderException`
+- **Transient failures** (network timeout, rate limit, 5xx): `ProviderException` with `isTransient()`
+- **Blocking failures** (missing or invalid API key, unknown provider): `ProviderException` with `isBlocking()`
+- **Permanent failures** (other 4xx, malformed responses): `ProviderException`
 - **Callers** (controller) catch the exception and show an error toast in the modal

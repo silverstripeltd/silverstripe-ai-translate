@@ -6,3 +6,5 @@ node_modules
 .env
 
 # client/dist is committed intentionally (build before commit)
+/.yarn/
+yarn-error.log

@@ -3,12 +3,12 @@
 namespace SilverstripeLtd\AiTranslate\Tests\Services;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use SilverstripeLtd\AiTranslate\Exceptions\AIProviderException;
-use SilverstripeLtd\AiTranslate\Providers\GeminiProvider;
+use SilverstripeLtd\AiCore\Provider\ProviderException;
+use SilverstripeLtd\AiCore\Provider\ProviderFactory;
+use SilverstripeLtd\AiCore\Testing\ScriptedProvider;
+use SilverstripeLtd\AiCore\Testing\StubProviderFactory;
 use SilverstripeLtd\AiTranslate\Services\ContentExtractService;
 use SilverstripeLtd\AiTranslate\Services\TranslationGenerationService;
-use SilverstripeLtd\AiTranslate\Tests\Providers\CapturingAIProvider;
-use SilverstripeLtd\AiTranslate\Tests\Providers\TestAIProvider;
 use SilverstripeLtd\AiTranslate\ValueObjects\TranslationExtractedContent;
 use SilverStripe\CMS\Model\SiteTree;
 use SilverStripe\Core\Environment;
@@ -62,7 +62,7 @@ class TranslationGenerationServiceTest extends SapphireTest
     protected function tearDown(): void
     {
         Environment::setEnv('AI_TRANSLATE_API_KEY', null);
-        Injector::inst()->registerService(new GeminiProvider(), GeminiProvider::class);
+        Injector::inst()->unregisterNamedObject(ProviderFactory::class);
         Locale::clearCached();
         FluentState::singleton()->setLocale(null);
         parent::tearDown();
@@ -73,7 +73,7 @@ class TranslationGenerationServiceTest extends SapphireTest
      */
     public function testGenerateForRecordReturnsStructuredSuggestions(): void
     {
-        $provider = new CapturingAIProvider(json_encode([
+        $provider = new ScriptedProvider([ScriptedProvider::text(json_encode([
             'translationRequired' => true,
             'suggestions' => [
                 [
@@ -87,8 +87,8 @@ class TranslationGenerationServiceTest extends SapphireTest
                     'suggestedContent' => '<p>Ihirangi hou</p>',
                 ],
             ],
-        ], JSON_UNESCAPED_SLASHES));
-        Injector::inst()->registerService($provider, GeminiProvider::class);
+        ], JSON_UNESCAPED_SLASHES))]);
+        $this->registerProvider($provider);
         $page = $this->createLocalisedPage(
             'Default title',
             '<p>Default content</p>',
@@ -106,8 +106,9 @@ class TranslationGenerationServiceTest extends SapphireTest
         $this->assertSame('<p>Current target content</p>', $result->suggestions[1]->currentTargetContent);
         $this->assertSame('<p>Default content</p>', $result->suggestions[1]->sourceLocaleContent);
         $this->assertSame('html', $result->suggestions[1]->contentFormat);
-        $this->assertStringContainsString('Default content', (string) $provider->lastUserPrompt);
-        $this->assertStringContainsString('Current target content', (string) $provider->lastUserPrompt);
+        $userPrompt = $provider->getLastRequest()->messages[0]->getText();
+        $this->assertStringContainsString('Default content', $userPrompt);
+        $this->assertStringContainsString('Current target content', $userPrompt);
     }
 
     /**
@@ -115,12 +116,12 @@ class TranslationGenerationServiceTest extends SapphireTest
      */
     public function testGenerateForRecordReturnsAlreadyMatchesLocaleResult(): void
     {
-        Injector::inst()->registerService(new TestAIProvider([
-            ['status' => 200, 'body' => json_encode([
+        $this->registerProvider(new ScriptedProvider([
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
-        ]), GeminiProvider::class);
+            ], JSON_UNESCAPED_SLASHES)),
+        ]));
         $page = $this->createLocalisedPage(
             'Default title',
             '<p>Default content</p>',
@@ -134,6 +135,62 @@ class TranslationGenerationServiceTest extends SapphireTest
     }
 
     /**
+     * Supplies provider replies that wrap the JSON object in ways models commonly do.
+     *
+     * @return array<string, array{body: string}>
+     */
+    public static function provideGenerateForRecordAcceptsWrappedJson(): array
+    {
+        $json = json_encode([
+            'translationRequired' => true,
+            'suggestions' => [
+                [
+                    'targetKey' => 'page:title',
+                    'targetType' => 'page_title',
+                    'suggestedContent' => 'Wharangi hou',
+                ],
+                [
+                    'targetKey' => 'page:content',
+                    'targetType' => 'page_content',
+                    'suggestedContent' => '<p>Ihirangi hou</p>',
+                ],
+            ],
+        ], JSON_UNESCAPED_SLASHES);
+        return [
+            'plain-json' => [
+                'body' => $json,
+            ],
+            'fenced-json' => [
+                'body' => "```json\n" . $json . "\n```",
+            ],
+            'leading-sentence' => [
+                'body' => "Here are the translations you asked for:\n\n" . $json,
+            ],
+        ];
+    }
+
+    /**
+     * Confirms fenced or prose-wrapped JSON replies still produce suggestions.
+     */
+    #[DataProvider('provideGenerateForRecordAcceptsWrappedJson')]
+    public function testGenerateForRecordAcceptsWrappedJson(string $body): void
+    {
+        $this->registerProvider(new ScriptedProvider([ScriptedProvider::text($body)]));
+        $page = $this->createLocalisedPage(
+            'Default title',
+            '<p>Default content</p>',
+            'Current target title',
+            '<p>Current target content</p>'
+        );
+        $service = new TranslationGenerationService();
+        $result = $service->generateForRecord($page, $this->targetLocale);
+        $this->assertFalse($result->alreadyMatchesLocale);
+        $this->assertCount(2, $result->suggestions);
+        $this->assertSame('Wharangi hou', $result->suggestions[0]->suggestedContent);
+        $this->assertSame('<p>Ihirangi hou</p>', $result->suggestions[1]->suggestedContent);
+    }
+
+    /**
      * Supplies malformed provider responses that should be rejected.
      *
      * @return array<string, array{body: string, message: string}>
@@ -143,6 +200,10 @@ class TranslationGenerationServiceTest extends SapphireTest
         return [
             'invalid-json' => [
                 'body' => '{broken',
+                'message' => 'not valid JSON',
+            ],
+            'plain-text' => [
+                'body' => 'Sorry, I cannot translate this page.',
                 'message' => 'not valid JSON',
             ],
             'missing-suggestions-array' => [
@@ -231,9 +292,9 @@ class TranslationGenerationServiceTest extends SapphireTest
         string $body,
         string $message
     ): void {
-        Injector::inst()->registerService(new TestAIProvider([
-            ['status' => 200, 'body' => $body],
-        ]), GeminiProvider::class);
+        $this->registerProvider(new ScriptedProvider([
+            ScriptedProvider::text($body),
+        ]));
         $page = $this->createLocalisedPage(
             'Default title',
             '<p>Default content</p>',
@@ -241,7 +302,7 @@ class TranslationGenerationServiceTest extends SapphireTest
             '<p>Current target content</p>'
         );
         $service = new TranslationGenerationService();
-        $this->expectException(AIProviderException::class);
+        $this->expectException(ProviderException::class);
         $this->expectExceptionMessage($message);
         $service->generateForRecord($page, $this->targetLocale);
     }
@@ -251,10 +312,10 @@ class TranslationGenerationServiceTest extends SapphireTest
      */
     public function testGenerateForRecordReturnsNullForEmptySourceContent(): void
     {
-        $provider = new TestAIProvider([
-            ['status' => 200, 'body' => '{"translationRequired":true,"suggestions":[]}'],
+        $provider = new ScriptedProvider([
+            ScriptedProvider::text('{"translationRequired":true,"suggestions":[]}'),
         ]);
-        Injector::inst()->registerService($provider, GeminiProvider::class);
+        $this->registerProvider($provider);
         $page = $this->createLocalisedPage('Default title', '<p>Default content</p>', '', '');
         $contentExtractService = new class extends ContentExtractService {
             /**
@@ -270,7 +331,7 @@ class TranslationGenerationServiceTest extends SapphireTest
         };
         $service = new TranslationGenerationService($contentExtractService);
         $this->assertNull($service->generateForRecord($page, $this->targetLocale));
-        $this->assertSame(0, $provider->callCount);
+        $this->assertSame(0, count($provider->getRequests()));
     }
 
     /**
@@ -303,5 +364,13 @@ class TranslationGenerationServiceTest extends SapphireTest
         });
         FluentState::singleton()->setLocale('en_NZ');
         return $page;
+    }
+
+    /**
+     * Routes every ai-core completion in this test to the scripted provider.
+     */
+    private function registerProvider(ScriptedProvider $provider): void
+    {
+        Injector::inst()->registerService(new StubProviderFactory($provider), ProviderFactory::class);
     }
 }

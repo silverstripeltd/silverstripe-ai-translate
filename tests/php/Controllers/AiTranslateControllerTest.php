@@ -6,11 +6,12 @@ use DNADesign\Elemental\Extensions\ElementalPageExtension;
 use DNADesign\Elemental\Models\ElementContent;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Log\LoggerInterface;
+use SilverstripeLtd\AiCore\Provider\ProviderFactory;
+use SilverstripeLtd\AiCore\Testing\ScriptedProvider;
+use SilverstripeLtd\AiCore\Testing\StubProviderFactory;
 use SilverstripeLtd\AiTranslate\Controllers\AiTranslateController;
 use SilverstripeLtd\AiTranslate\Forms\AiTranslateForm;
-use SilverstripeLtd\AiTranslate\Providers\GeminiProvider;
 use SilverstripeLtd\AiTranslate\Services\AiTranslateRateLimiter;
-use SilverstripeLtd\AiTranslate\Tests\Providers\TestAIProvider;
 use SilverstripeLtd\AiTranslate\Tests\RestrictedTranslatePage;
 use SilverstripeLtd\AiTranslate\Tests\TestLogger;
 use SilverstripeLtd\AiTranslate\Tests\TranslateTestElementalPage;
@@ -93,7 +94,7 @@ class AiTranslateControllerTest extends FunctionalTest
         Config::modify()->set(AiTranslateRateLimiter::class, 'window_seconds', 300);
         Environment::setEnv('AI_TRANSLATE_API_KEY', null);
         Injector::inst()->registerService($this->originalLogger, LoggerInterface::class);
-        Injector::inst()->registerService(new GeminiProvider(), GeminiProvider::class);
+        Injector::inst()->unregisterNamedObject(ProviderFactory::class);
         Locale::clearCached();
         FluentState::singleton()->setLocale(null);
         parent::tearDown();
@@ -256,8 +257,8 @@ class AiTranslateControllerTest extends FunctionalTest
      */
     public function testTranslateEndpointReturnsStructuredSuggestionsAndSafeDiffHtml(): void
     {
-        Injector::inst()->registerService(new TestAIProvider([
-            ['status' => 200, 'body' => json_encode([
+        $this->registerProvider(new ScriptedProvider([
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => true,
                 'suggestions' => [
                     [
@@ -272,8 +273,8 @@ class AiTranslateControllerTest extends FunctionalTest
                             . '<script>alert(1)</script>',
                     ],
                 ],
-            ], JSON_UNESCAPED_SLASHES)],
-        ]), GeminiProvider::class);
+            ], JSON_UNESCAPED_SLASHES)),
+        ]));
         $page = $this->createLocalisedPage(
             SiteTree::class,
             'Default title',
@@ -311,13 +312,13 @@ class AiTranslateControllerTest extends FunctionalTest
     public function testTranslateEndpointReturnsRateLimitResponse(): void
     {
         Config::modify()->set(AiTranslateRateLimiter::class, 'max_requests', 1);
-        $provider = new TestAIProvider([
-            ['status' => 200, 'body' => json_encode([
+        $provider = new ScriptedProvider([
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
+            ], JSON_UNESCAPED_SLASHES)),
         ]);
-        Injector::inst()->registerService($provider, GeminiProvider::class);
+        $this->registerProvider($provider);
 
         $page = $this->createLocalisedPage(
             SiteTree::class,
@@ -347,7 +348,7 @@ class AiTranslateControllerTest extends FunctionalTest
             'Too many AI translation requests for this page.',
             $payload['error'] ?? ''
         );
-        $this->assertSame(1, $provider->callCount);
+        $this->assertSame(1, count($provider->getRequests()));
     }
 
     /**
@@ -356,17 +357,17 @@ class AiTranslateControllerTest extends FunctionalTest
     public function testTranslateEndpointRateLimitIsScopedPerPage(): void
     {
         Config::modify()->set(AiTranslateRateLimiter::class, 'max_requests', 1);
-        $provider = new TestAIProvider([
-            ['status' => 200, 'body' => json_encode([
+        $provider = new ScriptedProvider([
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
-            ['status' => 200, 'body' => json_encode([
+            ], JSON_UNESCAPED_SLASHES)),
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
+            ], JSON_UNESCAPED_SLASHES)),
         ]);
-        Injector::inst()->registerService($provider, GeminiProvider::class);
+        $this->registerProvider($provider);
 
         $firstPage = $this->createLocalisedPage(
             SiteTree::class,
@@ -402,7 +403,7 @@ class AiTranslateControllerTest extends FunctionalTest
         $this->assertSame(200, $firstResponse->getStatusCode());
         $this->assertSame(200, $secondResponse->getStatusCode());
         $this->assertSame(429, $repeatFirstResponse->getStatusCode());
-        $this->assertSame(2, $provider->callCount);
+        $this->assertSame(2, count($provider->getRequests()));
     }
 
     /**
@@ -412,17 +413,17 @@ class AiTranslateControllerTest extends FunctionalTest
     {
         Config::modify()->set(AiTranslateRateLimiter::class, 'max_requests', 1);
         Config::modify()->set(AiTranslateRateLimiter::class, 'window_seconds', 2);
-        $provider = new TestAIProvider([
-            ['status' => 200, 'body' => json_encode([
+        $provider = new ScriptedProvider([
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
-            ['status' => 200, 'body' => json_encode([
+            ], JSON_UNESCAPED_SLASHES)),
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
+            ], JSON_UNESCAPED_SLASHES)),
         ]);
-        Injector::inst()->registerService($provider, GeminiProvider::class);
+        $this->registerProvider($provider);
 
         $page = $this->createLocalisedPage(
             SiteTree::class,
@@ -453,7 +454,7 @@ class AiTranslateControllerTest extends FunctionalTest
         $this->assertSame(429, $secondResponse->getStatusCode());
         $this->assertNotEmpty($secondResponse->getHeader('Retry-After'));
         $this->assertSame(200, $thirdResponse->getStatusCode());
-        $this->assertSame(2, $provider->callCount);
+        $this->assertSame(2, count($provider->getRequests()));
     }
 
     /**
@@ -461,12 +462,12 @@ class AiTranslateControllerTest extends FunctionalTest
      */
     public function testTranslateEndpointReturnsAlreadyMatchesLocaleResult(): void
     {
-        Injector::inst()->registerService(new TestAIProvider([
-            ['status' => 200, 'body' => json_encode([
+        $this->registerProvider(new ScriptedProvider([
+            ScriptedProvider::text(json_encode([
                 'translationRequired' => false,
                 'suggestions' => [],
-            ], JSON_UNESCAPED_SLASHES)],
-        ]), GeminiProvider::class);
+            ], JSON_UNESCAPED_SLASHES)),
+        ]));
         $page = $this->createLocalisedPage(
             SiteTree::class,
             'Default title',
@@ -1278,5 +1279,13 @@ class AiTranslateControllerTest extends FunctionalTest
             static fn(array $record): ?string => $record['context']['reason'] ?? null,
             $this->logger->records
         );
+    }
+
+    /**
+     * Routes every ai-core completion in this test to the scripted provider.
+     */
+    private function registerProvider(ScriptedProvider $provider): void
+    {
+        Injector::inst()->registerService(new StubProviderFactory($provider), ProviderFactory::class);
     }
 }
