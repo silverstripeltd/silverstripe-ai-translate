@@ -117,17 +117,62 @@ class TranslationGenerationService
                 $targetTarget
             );
         }
+        $orderedSuggestions = $this->orderSuggestions(
+            $extractedContent->sourceRewriteTargets,
+            $targetTargetsByKey,
+            $resolvedSuggestions
+        );
+        return new TranslationGenerationResult($orderedSuggestions === [], $orderedSuggestions);
+    }
+
+    /**
+     * Orders suggestions to match the source targets.
+     *
+     * Models often leave out a target whose current translation is already in the target language,
+     * although the prompt asks them to copy it back unchanged. Such a target is kept as written, with
+     * no suggestion. A target still blank, or still identical to its source text as a fresh Fluent
+     * localisation leaves it, has not been translated yet, so a missing suggestion for it means the
+     * response is incomplete.
+     *
+     * @param array<int, TranslationRewriteTarget> $sourceTargets
+     * @param array<string, TranslationRewriteTarget> $targetTargetsByKey
+     * @param array<string, TranslationSuggestion> $resolvedSuggestions
+     * @return array<int, TranslationSuggestion>
+     * @throws ProviderException when a target that has not been translated has no suggestion
+     */
+    private function orderSuggestions(
+        array $sourceTargets,
+        array $targetTargetsByKey,
+        array $resolvedSuggestions
+    ): array {
         $orderedSuggestions = [];
-        foreach ($extractedContent->sourceRewriteTargets as $rewriteTarget) {
-            if (!isset($resolvedSuggestions[$rewriteTarget->targetKey])) {
+        foreach ($sourceTargets as $sourceTarget) {
+            $suggestion = $resolvedSuggestions[$sourceTarget->targetKey] ?? null;
+            if ($suggestion) {
+                $orderedSuggestions[] = $suggestion;
+                continue;
+            }
+            $targetTarget = $targetTargetsByKey[$sourceTarget->targetKey] ?? null;
+            if (!$targetTarget || !$this->hasOwnTranslation($sourceTarget, $targetTarget)) {
                 throw new ProviderException(sprintf(
                     'AI provider response missing suggestion for target %s',
-                    $rewriteTarget->targetKey
+                    $sourceTarget->targetKey
                 ));
             }
-            $orderedSuggestions[] = $resolvedSuggestions[$rewriteTarget->targetKey];
         }
-        return new TranslationGenerationResult(false, $orderedSuggestions);
+        return $orderedSuggestions;
+    }
+
+    /**
+     * Whether the target locale holds its own wording for a target, rather than nothing or a copy of
+     * the source text.
+     */
+    private function hasOwnTranslation(
+        TranslationRewriteTarget $sourceTarget,
+        TranslationRewriteTarget $targetTarget
+    ): bool {
+        $targetContent = trim($targetTarget->content);
+        return $targetContent !== '' && $targetContent !== trim($sourceTarget->content);
     }
 
     /**
