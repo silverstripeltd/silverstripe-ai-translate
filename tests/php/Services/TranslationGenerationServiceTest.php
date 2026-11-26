@@ -191,6 +191,106 @@ class TranslationGenerationServiceTest extends SapphireTest
     }
 
     /**
+     * Confirms a target already translated in its own words is kept as written when the model
+     * leaves it out, instead of the whole response being rejected.
+     */
+    public function testGenerateForRecordKeepsAlreadyTranslatedTargetWithoutSuggestion(): void
+    {
+        $this->registerProvider(new ScriptedProvider([ScriptedProvider::text(json_encode([
+            'translationRequired' => true,
+            'suggestions' => [[
+                'targetKey' => 'page:content',
+                'targetType' => 'page_content',
+                'suggestedContent' => '<p>Ihirangi hou</p>',
+            ]],
+        ], JSON_UNESCAPED_SLASHES))]));
+        $page = $this->createLocalisedPage(
+            'Default title',
+            '<p>Default content</p>',
+            'Wharangi',
+            '<p>Default content</p>'
+        );
+        $service = new TranslationGenerationService();
+        $result = $service->generateForRecord($page, $this->targetLocale);
+        $this->assertFalse($result->alreadyMatchesLocale);
+        $this->assertCount(1, $result->suggestions);
+        $this->assertSame('page:content', $result->suggestions[0]->targetKey);
+        $this->assertSame('<p>Ihirangi hou</p>', $result->suggestions[0]->suggestedContent);
+    }
+
+    /**
+     * Confirms a response leaving every target as written reads as already matching the locale.
+     */
+    public function testGenerateForRecordReturnsAlreadyMatchesLocaleWhenEveryTargetIsKept(): void
+    {
+        $this->registerProvider(new ScriptedProvider([ScriptedProvider::text(json_encode([
+            'translationRequired' => true,
+            'suggestions' => [],
+        ], JSON_UNESCAPED_SLASHES))]));
+        $page = $this->createLocalisedPage(
+            'Default title',
+            '<p>Default content</p>',
+            'Wharangi',
+            '<p>Ihirangi</p>'
+        );
+        $service = new TranslationGenerationService();
+        $result = $service->generateForRecord($page, $this->targetLocale);
+        $this->assertTrue($result->alreadyMatchesLocale);
+        $this->assertSame([], $result->suggestions);
+    }
+
+    /**
+     * Supplies target-locale content that has not been translated yet.
+     *
+     * @return array<string, array<string, string>>
+     */
+    public static function provideUntranslatedTargets(): array
+    {
+        return [
+            'copy-of-source' => [
+                'targetTitle' => 'Default title',
+                'targetContent' => '<p>Ihirangi</p>',
+                'missingKey' => 'page:title',
+                'suggestedKey' => 'page:content',
+                'suggestedType' => 'page_content',
+            ],
+            'blank' => [
+                'targetTitle' => 'Wharangi',
+                'targetContent' => '',
+                'missingKey' => 'page:content',
+                'suggestedKey' => 'page:title',
+                'suggestedType' => 'page_title',
+            ],
+        ];
+    }
+
+    /**
+     * Confirms a missing suggestion is still rejected for a target that has not been translated.
+     */
+    #[DataProvider('provideUntranslatedTargets')]
+    public function testGenerateForRecordRejectsMissingSuggestionForUntranslatedTarget(
+        string $targetTitle,
+        string $targetContent,
+        string $missingKey,
+        string $suggestedKey,
+        string $suggestedType
+    ): void {
+        $this->registerProvider(new ScriptedProvider([ScriptedProvider::text(json_encode([
+            'translationRequired' => true,
+            'suggestions' => [[
+                'targetKey' => $suggestedKey,
+                'targetType' => $suggestedType,
+                'suggestedContent' => 'Whakamaori',
+            ]],
+        ], JSON_UNESCAPED_SLASHES))]));
+        $page = $this->createLocalisedPage('Default title', '<p>Default content</p>', $targetTitle, $targetContent);
+        $service = new TranslationGenerationService();
+        $this->expectException(ProviderException::class);
+        $this->expectExceptionMessage('missing suggestion for target ' . $missingKey);
+        $service->generateForRecord($page, $this->targetLocale);
+    }
+
+    /**
      * Supplies malformed provider responses that should be rejected.
      *
      * @return array<string, array{body: string, message: string}>
@@ -258,17 +358,6 @@ class TranslationGenerationServiceTest extends SapphireTest
                     ]],
                 ], JSON_UNESCAPED_SLASHES),
                 'message' => 'duplicate suggestions',
-            ],
-            'missing-target' => [
-                'body' => json_encode([
-                    'translationRequired' => true,
-                    'suggestions' => [[
-                        'targetKey' => 'page:title',
-                        'targetType' => 'page_title',
-                        'suggestedContent' => 'Only one suggestion',
-                    ]],
-                ], JSON_UNESCAPED_SLASHES),
-                'message' => 'missing suggestion',
             ],
             'suggestions-present-when-translation-not-required' => [
                 'body' => json_encode([
